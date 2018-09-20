@@ -1,0 +1,133 @@
+首先：是配置文件，JDBCUtil从配置文件中利用用户名和密码，获取要连接的数据库，
+
+url = jdbc:mysql://localhost:3306/for_class
+user = root
+password = hailong1996
+
+接下来是工具类
+
+package com.isea.mysql;
+
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.Properties;
+
+public class JDBCUtil {
+    static Properties properties = null;
+    static {
+
+        try {
+            properties = new Properties();
+            properties.load(ClassLoader.getSystemResourceAsStream("jdbc.config.properties"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(properties.getProperty("url"),properties);
+    }
+
+    public static int update(String sql,Object... args) throws SQLException {
+        Connection connection = getConnection();
+        PreparedStatement preparedStatement = connection.prepareStatement(sql);
+        if (args != null){
+            for (int i = 0; i < args.length ; i ++){
+                preparedStatement.setObject((i + 1),args[i]);
+            }
+        }
+        int length = preparedStatement.executeUpdate();
+        free(connection,preparedStatement);
+        return length;
+    }
+
+    //查询一条记录返回一个对象
+    public static <T> T get(Class<T> clazz,String sql,Object... args) throws SQLException, NoSuchFieldException, InstantiationException, IllegalAccessException {
+        ArrayList<T> list = getList(clazz,sql,args);
+        if (list != null && list.size() > 0)
+            return list.get(0);
+        return null;
+    }
+    
+//查询多条记录：
+    public static <T> ArrayList<T> getList(Class<T> clazz,String sql,Object...args) throws SQLException, IllegalAccessException, InstantiationException, NoSuchFieldException {
+        ArrayList<T> list = null;
+        Connection connection = getConnection();
+        PreparedStatement preparedStatement = connection.prepareStatement(sql);
+        if (args != null){
+            for (int i = 0; i < args.length; i ++){
+                preparedStatement.setObject((i + 1),args[i]);
+            }
+        }
+
+        ResultSet resultSet = preparedStatement.executeQuery();
+        ResultSetMetaData metaData = resultSet.getMetaData();
+        int count = metaData.getColumnCount();
+        while (resultSet.next()){
+            if (list == null){
+                list = new ArrayList<T>();
+            }
+            T instance = clazz.newInstance();
+            for (int i = 0 ; i < count; i ++){
+                Object value = resultSet.getObject(i + 1);
+                String name = metaData.getColumnLabel(i+ 1);
+                Field field = clazz.getDeclaredField(name);
+                field.setAccessible(true);
+                field.set(instance,value);
+            }
+            list.add(instance);
+        }
+        free(connection,preparedStatement,resultSet);
+        return list;
+    }
+
+    //查询单个元素，一行一列
+    public static Object getValue(String sql,Object...args) throws SQLException {
+        Connection connection = getConnection();
+        PreparedStatement preparedStatement = connection.prepareStatement(sql);
+        if (args != null){
+            for (int i = 0; i < args.length ; i ++){
+                preparedStatement.setObject((i + 1),args[i]);
+            }
+        }
+
+        ResultSet resultSet = preparedStatement.executeQuery();
+        Object value = null;
+        if (resultSet.next()){
+            value = resultSet.getObject(1);
+        }
+        free(connection,preparedStatement,resultSet);
+        return value;
+    }
+
+    private static void free(Connection connection, PreparedStatement preparedStatement, ResultSet resultSet){
+        try {
+            if (resultSet != null)
+                resultSet.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }finally {
+            free(connection,preparedStatement);
+        }
+    }
+
+    private static void free(Connection connection, PreparedStatement preparedStatement) {
+        try {
+            if (preparedStatement != null)
+                preparedStatement.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }finally {
+            try {
+                if (connection != null){
+                    connection.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
